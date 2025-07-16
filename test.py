@@ -19,7 +19,7 @@ DISTRICTS = [
 ]
 
 user_tasks = {}
-user_selected_districts = {}  # Store multiple selections per user
+user_selected_districts = {}  # Store sets of districts per user
 
 # ---------------------- SCRAPER FUNCTIONS -----------------------
 
@@ -36,7 +36,7 @@ def get_driver():
 def extract_listings():
     driver = get_driver()
     driver.get("https://bina.az")
-    time.sleep(5)
+    time.sleep(5)  # Can be improved with waits
     soup = BeautifulSoup(driver.page_source, "html.parser")
     driver.quit()
 
@@ -89,6 +89,7 @@ async def continuous_scrape(chat_id: int, bot, selected_districts):
 
             listing = scrape_listing(url)
             if listing:
+                # "ALL" means no filtering by district
                 if "ALL" in selected_districts or listing["district"] in selected_districts:
                     seen_urls.add(url)
                     await bot.send_message(
@@ -106,17 +107,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("ℹ️ Scraper artıq işləyir.")
         return
 
+    # Default selection is ALL districts
     task = asyncio.create_task(continuous_scrape(chat_id, context.bot, ["ALL"]))
     user_tasks[chat_id] = task
     await update.message.reply_text("✅ Scraper başladıldı: Bütün ərazilər.")
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    user_selected_districts[chat_id] = set()
+    # Initialize user selection if not present
+    if chat_id not in user_selected_districts:
+        user_selected_districts[chat_id] = set()
 
     keyboard = [
-        [InlineKeyboardButton(f"✅ {district}" if district in user_selected_districts[chat_id] else district,
-                              callback_data=district)]
+        [InlineKeyboardButton(
+            f"✅ {district}" if district in user_selected_districts[chat_id] else district,
+            callback_data=district
+        )]
         for district in DISTRICTS
     ]
     keyboard.append([InlineKeyboardButton("🚀 Başla", callback_data="START_SCRAPER")])
@@ -132,15 +138,17 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "START_SCRAPER":
         selected = list(user_selected_districts.get(chat_id, []))
         if not selected:
-            await context.bot.send_message(chat_id=chat_id, text="❗Ən azı bir ərazi seçin.")
+            await context.bot.send_message(chat_id=chat_id, text="❗ Ən azı bir ərazi seçin.")
             return
 
+        # Cancel existing task if running
         if chat_id in user_tasks:
             user_tasks[chat_id].cancel()
 
         await query.edit_message_text(f"✅ Seçilmiş ərazilər: {', '.join(selected)}")
         task = asyncio.create_task(continuous_scrape(chat_id, context.bot, selected))
         user_tasks[chat_id] = task
+
     else:
         selected = user_selected_districts.get(chat_id, set())
         if data in selected:
@@ -148,6 +156,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             selected.add(data)
         user_selected_districts[chat_id] = selected
+        # Refresh the menu to update checkmarks
         await menu(update, context)
 
 # ---------------------- BOT LAUNCH -----------------------
@@ -160,11 +169,3 @@ if __name__ == "__main__":
 
     print("🚀 Bot is running...")
     app.run_polling()
-
-
-
-
-
-
-
-
